@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, OnModuleDestroy } from '@nestjs/common';
-import { Client } from 'pg';
+import { Pool } from 'pg';
 import { createHmac, randomBytes, randomInt, randomUUID, timingSafeEqual } from 'node:crypto';
 import { DIMENSIONS, scoreAssessment, type AnswerValue, type ScoringQuestion } from '../scoring/assessment-scoring.js';
 
@@ -23,7 +23,7 @@ const maskEmail = (email: string) => {
 
 @Injectable()
 export class DatabaseService implements OnModuleDestroy {
-  private client: Client;
+  private pool: Pool;
   private queryQueue: Promise<void> = Promise.resolve();
 
   constructor() {
@@ -33,8 +33,9 @@ export class DatabaseService implements OnModuleDestroy {
     // Sadece Node bağlantısı için sslmode'u URL'nin geçici kopyasından çıkarıyoruz.
     url.searchParams.delete('sslmode');
 
-    this.client = new Client({
+    this.pool = new Pool({
       connectionString: url.toString(),
+      max: 1,
       ssl: {
         rejectUnauthorized: false,
       },
@@ -42,7 +43,8 @@ export class DatabaseService implements OnModuleDestroy {
   }
 
   async connect() {
-    await this.client.connect();
+    const client = await this.pool.connect();
+    client.release();
   }
 
   async query<T = any>(
@@ -52,7 +54,7 @@ export class DatabaseService implements OnModuleDestroy {
     let rows: T[] = [];
 
     const run = this.queryQueue.then(async () => {
-      const result = await this.client.query(text, params);
+      const result = await this.pool.query(text, params);
       rows = result.rows as T[];
     });
 
@@ -67,17 +69,22 @@ export class DatabaseService implements OnModuleDestroy {
   ): Promise<T> {
     let value!: T;
     const run = this.queryQueue.then(async () => {
-      await this.client.query('BEGIN');
+      const client = await this.pool.connect();
       try {
-        const query = async <R = Record<string, unknown>>(sql: string, params: unknown[] = []) => {
-          const result = await this.client.query(sql, params);
-          return result.rows as R[];
-        };
-        value = await work(query);
-        await this.client.query('COMMIT');
-      } catch (error) {
-        await this.client.query('ROLLBACK');
-        throw error;
+        await client.query('BEGIN');
+        try {
+          const query = async <R = Record<string, unknown>>(sql: string, params: unknown[] = []) => {
+            const result = await client.query(sql, params);
+            return result.rows as R[];
+          };
+          value = await work(query);
+          await client.query('COMMIT');
+        } catch (error) {
+          await client.query('ROLLBACK');
+          throw error;
+        }
+      } finally {
+        client.release();
       }
     });
     this.queryQueue = run.catch(() => {});
@@ -1541,6 +1548,6 @@ export class DatabaseService implements OnModuleDestroy {
   }
 
   async onModuleDestroy() {
-    await this.client.end();
+    await this.pool.end();
   }
 }
