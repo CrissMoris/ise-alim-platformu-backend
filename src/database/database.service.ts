@@ -1467,6 +1467,130 @@ export class DatabaseService implements OnModuleDestroy {
 
   return rows[0];
 }
+
+  /**
+   * Kariyer formundan (POST /api/public/apply) gelen başvuru.
+   * pozisyon bul-ya-da-oluştur + e-postaya göre aday upsert,
+   * source='career_form'.
+   */
+  async applyCareerApplication(data: {
+    fullName: string;
+    email: string;
+    phone: string;
+    position: string;
+    coverLetter?: string | null;
+    cvUrl?: string | null;
+    birthDate: string;
+    district: string;
+    militaryStatus: string;
+    hasDriverLicense: boolean;
+    driverLicenseType?: string | null;
+    activelyDriving: boolean;
+    linkedin?: string | null;
+  }) {
+    return this.transaction(async (query) => {
+      const orgRows = await query<{ id: string }>(
+        'SELECT id FROM "Organization" ORDER BY "createdAt" ASC LIMIT 1',
+      );
+      const organizationId = orgRows[0]?.id;
+      if (!organizationId) throw new BadRequestException('Sistem yapılandırılmamış.');
+
+      // Pozisyonu başlığa göre bul, yoksa oluştur.
+      let positionId: string;
+      const positionRows = await query<{ id: string }>(
+        'SELECT id FROM "Position" WHERE "organizationId"=$1 AND LOWER(title)=LOWER($2) AND "isActive"=true LIMIT 1',
+        [organizationId, data.position],
+      );
+      if (positionRows[0]) {
+        positionId = positionRows[0].id;
+      } else {
+        positionId = randomUUID();
+        await query(
+          'INSERT INTO "Position" (id,"organizationId",title,"isActive","createdAt","updatedAt") VALUES ($1,$2,$3,true,NOW(),NOW())',
+          [positionId, organizationId, data.position],
+        );
+      }
+
+      const driverLicenseType = data.hasDriverLicense ? data.driverLicenseType || null : null;
+      const activelyDriving = data.hasDriverLicense ? data.activelyDriving : false;
+
+      const existingRows = await query<{ id: string }>(
+        'SELECT id FROM "Candidate" WHERE "organizationId"=$1 AND email=$2 AND "deletedAt" IS NULL LIMIT 1',
+        [organizationId, data.email],
+      );
+      const existing = existingRows[0];
+
+      if (existing) {
+        await query(
+          `
+          UPDATE "Candidate" SET
+            "fullName"=$2,
+            phone=COALESCE(NULLIF($3,''), phone),
+            "birthDate"=$4,
+            district=$5,
+            "militaryStatus"=$6,
+            "hasDriverLicense"=$7,
+            "driverLicenseType"=$8,
+            "activelyDriving"=$9,
+            "coverLetter"=COALESCE($10, "coverLetter"),
+            "cvUrl"=COALESCE($11, "cvUrl"),
+            "positionId"=COALESCE($12, "positionId"),
+            linkedin=COALESCE($13, linkedin),
+            source='career_form',
+            "updatedAt"=NOW()
+          WHERE id=$1
+          `,
+          [
+            existing.id,
+            data.fullName,
+            data.phone || '',
+            data.birthDate,
+            data.district,
+            data.militaryStatus,
+            data.hasDriverLicense,
+            driverLicenseType,
+            activelyDriving,
+            data.coverLetter || null,
+            data.cvUrl || null,
+            positionId,
+            data.linkedin || null,
+          ],
+        );
+        return { candidateId: existing.id, updated: true };
+      }
+
+      const candidateId = randomUUID();
+      await query(
+        `
+        INSERT INTO "Candidate" (
+          id, "organizationId", "fullName", email, phone, "birthDate", district,
+          "militaryStatus", "hasDriverLicense", "driverLicenseType", "activelyDriving",
+          "positionId", "coverLetter", "cvUrl", linkedin, source, "createdAt", "updatedAt"
+        )
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,NOW(),NOW())
+        `,
+        [
+          candidateId,
+          organizationId,
+          data.fullName,
+          data.email,
+          data.phone || null,
+          data.birthDate,
+          data.district,
+          data.militaryStatus,
+          data.hasDriverLicense,
+          driverLicenseType,
+          activelyDriving,
+          positionId,
+          data.coverLetter || null,
+          data.cvUrl || null,
+          data.linkedin || null,
+          'career_form',
+        ],
+      );
+      return { candidateId, updated: false };
+    });
+  }
   // UPDATE
 
   async updateCandidateScore(
