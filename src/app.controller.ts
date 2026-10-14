@@ -1,5 +1,7 @@
-import { BadRequestException, Controller, Get, Param, Patch, Body, Post, Delete, Req } from '@nestjs/common';
+import { BadRequestException, Controller, Get, NotFoundException, Param, Patch, Body, Post, Delete, Req, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { AppService } from './app.service.js';
+import { saveCvFile, type UploadedCv } from './applications/applications.controller.js';
 import { DatabaseService } from './database/database.service.js';
 import { AuthService } from './auth/auth.service.js';
 import type { AdminRequest } from './auth/auth.guard.js';
@@ -379,4 +381,29 @@ async createCandidate(
     req.admin!.organizationId,
   );
 }
+  @Post('candidates/:id/cv')
+  @UseInterceptors(
+    FileInterceptor('cv', {
+      limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
+      fileFilter: (_req, file, cb) => {
+        const allowed = [
+          'application/pdf',
+          'application/msword',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        ];
+        if (allowed.includes(file.mimetype)) {
+          cb(null, true);
+        } else {
+          cb(new BadRequestException('Yalnızca PDF veya Word dosyası kabul edilmektedir.'), false);
+        }
+      },
+    }),
+  )
+  async uploadCandidateCv(@Param('id') id: string, @UploadedFile() cvFile?: UploadedCv) {
+    if (!cvFile) throw new BadRequestException('CV dosyası gerekli.');
+    const cvUrl = saveCvFile(cvFile);
+    const updated = await this.databaseService.updateCandidateCv(id, cvUrl);
+    if (!updated) throw new NotFoundException('Aday bulunamadı.');
+    return updated;
+  }
 }

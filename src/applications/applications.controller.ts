@@ -11,7 +11,21 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { DatabaseService } from '../database/database.service.js';
 
-type UploadedCv = { originalname: string; mimetype: string; size: number; buffer: Buffer };
+/** Multer memory storage dosyası (Express.Multer.File yerine yerel tip — @types/multer gerekmez). */
+export type UploadedCv = { originalname: string; mimetype: string; size: number; buffer: Buffer };
+
+/**
+ * CV dosyasını kalıcı köke yazar, DB'de saklanan göreli yolu döndürür.
+ * UPLOADS_DIR set ise dosyalar deploy dizininden bağımsız köke yazılır (main.ts'teki statik sunumla aynı kök).
+ * Hem public başvuru hem admin "Aday Ekle" CV yüklemesi bunu kullanır.
+ */
+export function saveCvFile(cvFile: UploadedCv): string {
+  const uploadDir = path.join(process.env.UPLOADS_DIR || path.join(process.cwd(), 'uploads'), 'cvs');
+  if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+  const safeName = `${Date.now()}-${cvFile.originalname.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+  fs.writeFileSync(path.join(uploadDir, safeName), cvFile.buffer);
+  return `/api/uploads/cvs/${safeName}`;
+}
 
 /** Kariyer formu "Yapıldı/Tecilli/Muaf" gönderir; admin paneli "yapildi/tecilli/muaf" değerlerini bekler. */
 function normalizeMilitaryStatus(value: string): 'yapildi' | 'yapilmadi' | 'tecilli' | 'muaf' | null {
@@ -72,15 +86,7 @@ export class ApplicationsController {
       throw new BadRequestException('Askerlik durumu geçersiz.');
     }
 
-    // cvUrl göreli tutulur (/api/uploads/cvs/...).
-    let cvUrl: string | null = null;
-    if (cvFile) {
-      const uploadDir = path.join(process.cwd(), 'uploads', 'cvs');
-      if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
-      const safeName = `${Date.now()}-${cvFile.originalname.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
-      fs.writeFileSync(path.join(uploadDir, safeName), cvFile.buffer);
-      cvUrl = `/api/uploads/cvs/${safeName}`;
-    }
+    const cvUrl: string | null = cvFile ? saveCvFile(cvFile) : null;
 
     await this.database.applyCareerApplication({
       fullName: String(fullName).trim(),
@@ -98,7 +104,7 @@ export class ApplicationsController {
       linkedin: normalizeUrl(linkedin ? String(linkedin).trim() : '') ?? null,
     });
 
-    // Kariyer formu `response.ok && data.ok` kontrol eder.
+     // Kariyer formu `response.ok && data.ok` kontrol eder.
     return { ok: true, message: 'Başvurunuz alındı! En kısa sürede sizinle iletişime geçeceğiz.' };
   }
 }

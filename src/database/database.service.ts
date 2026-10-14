@@ -1470,8 +1470,6 @@ export class DatabaseService implements OnModuleDestroy {
 
   /**
    * Kariyer formundan (POST /api/public/apply) gelen başvuru.
-   * pozisyon bul-ya-da-oluştur + e-postaya göre aday upsert,
-   * source='career_form'.
    */
   async applyCareerApplication(data: {
     fullName: string;
@@ -1495,7 +1493,6 @@ export class DatabaseService implements OnModuleDestroy {
       const organizationId = orgRows[0]?.id;
       if (!organizationId) throw new BadRequestException('Sistem yapılandırılmamış.');
 
-      // Pozisyonu başlığa göre bul, yoksa oluştur.
       let positionId: string;
       const positionRows = await query<{ id: string }>(
         'SELECT id FROM "Position" WHERE "organizationId"=$1 AND LOWER(title)=LOWER($2) AND "isActive"=true LIMIT 1',
@@ -1606,6 +1603,21 @@ export class DatabaseService implements OnModuleDestroy {
       RETURNING id, score
       `,
       [id, score],
+    );
+
+    return rows[0] ?? null;
+  }
+
+  async updateCandidateCv(id: string, cvUrl: string) {
+    const rows = await this.query(
+      `
+      UPDATE "Candidate"
+      SET "cvUrl" = $2, "updatedAt" = NOW()
+      WHERE id = $1
+        AND "deletedAt" IS NULL
+      RETURNING id, "cvUrl"
+      `,
+      [id, cvUrl],
     );
 
     return rows[0] ?? null;
