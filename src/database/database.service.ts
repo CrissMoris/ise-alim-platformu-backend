@@ -20,6 +20,10 @@ const maskEmail = (email: string) => {
   const visible = name.length <= 2 ? name[0] : `${name[0]}${name[1]}`;
   return `${visible}${'*'.repeat(Math.max(2, name.length - 2))}@${domain}`;
 };
+const rethrowEmailConflict = (error: { code?: string }): never => {
+  if (error?.code === '23505') throw new ConflictException('Bu e-posta adresiyle kayıtlı bir aday zaten var.');
+  throw error;
+};
 
 @Injectable()
 export class DatabaseService implements OnModuleDestroy {
@@ -1419,12 +1423,13 @@ export class DatabaseService implements OnModuleDestroy {
         "foreignLanguage",
         "totalWorkExperience",
         field,
+        tags,
         "createdAt",
         "updatedAt"
       )
       VALUES (
         $1, $2, $3, $4, $5, $6, $7, $8,
-        $9, $10, $11, $12, $13, $14, $15, $16,
+        $9, $10, $11, $12, $13, $14, $15, $16, $17,
         NOW(), NOW()
       )
       RETURNING
@@ -1462,8 +1467,10 @@ export class DatabaseService implements OnModuleDestroy {
       data.foreignLanguage || null,
       data.totalWorkExperience || null,
       data.field || null,
+      // Kaynak, eski kayıtlarla aynı biçimde etiket olarak da saklanır (liste "Kaynak" sütunu tags okur).
+      data.source ? [data.source] : [],
     ],
-  );
+  ).catch(rethrowEmailConflict);
 
   return rows[0];
 }
@@ -1678,7 +1685,7 @@ export class DatabaseService implements OnModuleDestroy {
         notes
       `,
       [id, ...values],
-    );
+    ).catch(rethrowEmailConflict);
 
     return rows[0] ?? null;
   }

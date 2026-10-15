@@ -356,6 +356,13 @@ const mail = contact.email ? await this.emailService.sendRaw(contact.email, 'DeÄ
     return this.databaseService.updateCandidateScore(id, score);
   }
 
+  @Patch('candidates/:id')
+  async updateCandidate(@Param('id') id: string, @Body() body: Record<string, unknown>) {
+    const updated = await this.databaseService.updateCandidate(id, body ?? {});
+    if (!updated) throw new NotFoundException('Aday bulunamadÄ±.');
+    return updated;
+  }
+
   @Post('candidates')
 async createCandidate(
   @Req() req: AdminRequest,
