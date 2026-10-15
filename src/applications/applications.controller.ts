@@ -46,7 +46,7 @@ function normalizeUrl(value: string): string | undefined {
 /**
  * Etkinlik Bilgisayar kariyer sayfasının çağırdığı public başvuru endpoint'i.
  */
-@Controller('public', 'api/public')
+@Controller(['public', 'api/public'])
 export class ApplicationsController {
   constructor(private database: DatabaseService) {}
 
