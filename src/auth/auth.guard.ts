@@ -10,7 +10,7 @@ export class AuthGuard implements CanActivate {
   async canActivate(context: ExecutionContext) {
     const req = context.switchToHttp().getRequest<AdminRequest>();
     if (req.path === '/auth/login' && req.method === 'POST') return true;
-    if (req.method === 'POST' && req.path === '/api/public/apply') return true;
+    if (req.method === 'POST' && (req.path === '/public/apply' || req.path === '/api/public/apply')) return true;
     if ((req.method === 'GET' && /^\/appointments\/[A-Za-z0-9_-]{32}$/.test(req.path)) ||
         (req.method === 'POST' && /^\/appointments\/[A-Za-z0-9_-]{32}\/book$/.test(req.path))) return true;
     if ((req.method === 'GET' && /^\/candidate\/invites\/[A-Za-z0-9_-]{43}$/.test(req.path)) ||
